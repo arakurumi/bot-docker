@@ -1,9 +1,9 @@
 aioaria2
 aiofiles
+aiohttp
 aioqbt
 aioshutil
 anytree
-curl-cffi
 fastapi
 gallery-dl
 google-api-python-client
@@ -24,4 +24,5 @@ speedtest-cli
 tenacity
 urllib3
 uvicorn
-yt-dlp[default,curl-cffi]
+uvloop
+yt-dlp[default]
