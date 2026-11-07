@@ -3,31 +3,38 @@ name: Build and Push MLTB Image
 on:
   push:
     paths:
-      - "MLTB/Dockerfile"
-      - "MLTB/patch.sh"
-      - "MLTB/requirements.txt"
+      - "MLTB/**"
 
   schedule:
     - cron: "0 0 * * *"
 
   workflow_dispatch:
 
-jobs:
-  build:
-    name: Build and Push Image
+permissions:
+  contents: read
 
-    runs-on: ubuntu-24.04
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: arakurumi/bot
+  CONTEXT_SUFFIX: MLTB
+
+jobs:
+  meta:
+    name: Prepare Metadata
+
+    runs-on: ubuntu-26.04
+
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
 
     steps:
-      - name: Login to Docker.io
-        uses: docker/login-action@master
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Set Up Docker Metadata
         id: meta
-        uses: docker/metadata-action@master
+        uses: docker/metadata-action@v6
         with:
           tags: |
             mltb
@@ -40,13 +47,151 @@ jobs:
             org.opencontainers.image.title=Docker-Bot
             org.opencontainers.image.version={{date 'YYYYMMDD'}}
 
-      - name: Build and Push to Docker.io
-        uses: docker/build-push-action@master
+  build:
+    name: Build (${{ matrix.platform }})
+
+    needs: meta
+
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-26.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-26.04-arm
+
+    steps:
+      - name: Set Up BUILDX
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker.io
+        uses: docker/login-action@v4
         with:
-          push: true
-          context: "{{defaultContext}}:MLTB"
-          no-cache: true
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set Cache Bust
+        id: cache-bust
+        run: echo "daily=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push by Digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: "{{defaultContext}}:${{ env.CONTEXT_SUFFIX }}"
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            CACHE_BUST=${{ steps.cache-bust.outputs.daily }}
+          cache-from: type=gha,scope=${{ env.CONTEXT_SUFFIX }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=${{ env.CONTEXT_SUFFIX }}-${{ matrix.arch }}
           provenance: false
-          platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: ${{ needs.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export Digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload Digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ env.CONTEXT_SUFFIX }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish Multi-Arch Manifest
+
+    needs:
+      - meta
+      - build
+
+    runs-on: ubuntu-26.04
+
+    steps:
+      - name: Download Digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ env.CONTEXT_SUFFIX }}-*
+          merge-multiple: true
+
+      - name: Set Up BUILDX
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker.io
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Create Manifest List
+        working-directory: /tmp/digests
+        env:
+          TAGS: ${{ needs.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tag_args=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args="$tag_args --tag $tag"
+          done <<< "$TAGS"
+          docker buildx imagetools create $tag_args \
+            $(printf "${{ env.IMAGE }}@sha256:%s " *)
+
+  verify:
+    name: Verify Image
+
+    needs:
+      - meta
+      - merge
+
+    runs-on: ubuntu-26.04
+
+    steps:
+      - name: Pull Image
+        run: docker pull ${{ needs.meta.outputs.tags }}
+
+      - name: Verify Python Environment
+        run: |
+          docker run --rm ${{ needs.meta.outputs.tags }} /bin/sh -c '
+            fail=0
+            green="\033[1;32m"
+            red="\033[1;31m"
+            bold="\033[1m"
+            dim="\033[2m"
+            reset="\033[0m"
+
+            printf "\n  ${bold}Verifying MLTB image${reset}\n"
+            printf "  ${dim}--------------------------------------------------${reset}\n"
+
+            if /mltb/bin/python -V >/dev/null 2>&1; then
+              printf "  ${green}✔${reset}  %-24s %s\n" "mltb venv" "$(/mltb/bin/python -V 2>&1)"
+            else
+              fail=$((fail + 1))
+              printf "  ${red}✖${reset}  %-24s %s\n" "mltb venv" "missing"
+            fi
+
+            for module in kurigram yt_dlp gallery_dl pycurl aiohttp aioqbt aioaria2 fastapi uvicorn pymongo jinja2 natsort anytree PIL Crypto magic urllib3; do
+              if /mltb/bin/python -c "import $module" >/dev/null 2>&1; then
+                printf "  ${green}✔${reset}  %-24s %s\n" "$module" "imported"
+              else
+                fail=$((fail + 1))
+                printf "  ${red}✖${reset}  %-24s %s\n" "$module" "import failed"
+              fi
+            done
+
+            printf "  ${dim}--------------------------------------------------${reset}\n"
+            if [ "$fail" -gt 0 ]; then
+              printf "  ${red}✖${reset}  %d check(s) failed\n" "$fail"
+              exit 1
+            fi
+            printf "  ${green}✔${reset}  Environment verified\n"
+          '

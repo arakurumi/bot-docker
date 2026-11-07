@@ -1,16 +1,22 @@
 FROM arakurumi/mltb:latest AS builder
 
-COPY . /
+ENV CC=clang \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-ENV CC=clang
+COPY requirements.txt /
 
 RUN apk add --no-cache --virtual .build-deps build-base clang curl-dev
 
 RUN python -m venv --system-site-packages mltb
 
-RUN /mltb/bin/pip install --no-cache-dir --requirement requirements.txt
+ARG CACHE_BUST=local
 
-RUN apk del .build-deps && rm -rf /var/cache/apk /tmp/* /root/.cache
+RUN --mount=type=cache,target=/root/.cache/pip \
+    echo "Cache bust: ${CACHE_BUST}" \
+    && /mltb/bin/pip install --requirement /requirements.txt
+
+RUN apk del .build-deps \
+    && rm -rf /var/cache/apk /tmp/* /root/.cache /Dockerfile /requirements.txt
 
 FROM arakurumi/mltb:latest
 
