@@ -207,9 +207,3 @@ Both workflows:
 ## License
 
 Per the Open Container Initiative labels written by the GitHub Actions workflows, this project is released under the [MIT License](https://opensource.org/license/mit).
-
----
-
-## Credits
-
-- Author: Kurumi <kqruumi@gmail.com>, taken from the OCI image metadata used by the build workflows.
