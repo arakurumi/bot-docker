@@ -1,23 +1,24 @@
-FROM arakurumi/myne:debian AS builder
+FROM arakurumi/myne:alpine AS builder
 
 COPY . /
 
 ENV CC=gcc CXX=g++
 
-RUN apt update && apt install --yes build-essential libfreetype6-dev libjpeg-dev zlib1g-dev libcurl4-openssl-dev libssl-dev
+RUN apk add --no-cache --virtual .build-deps build-base curl-dev freetype-dev jpeg-dev libffi-dev libxml2-dev libxslt-dev linux-headers openssl-dev zlib-dev \
+    && apk add --no-cache freetype libjpeg-turbo libxml2 libxslt zlib
 
 RUN python -m venv --system-site-packages gemoe
 
 RUN /gemoe/bin/pip install --no-cache-dir --requirement requirements.txt
 
-RUN python -m venv  --system-site-packages librespot
+RUN python -m venv --system-site-packages librespot
 
 RUN /librespot/bin/pip install --no-cache-dir librespot
 
-RUN apt remove --yes build-essential libfreetype6-dev libjpeg-dev zlib1g-dev libcurl4-openssl-dev libssl-dev && rm -rf /var/lib/apt/lists /var/cache/apt /tmp/* /root/.cache
+RUN apk del .build-deps && rm -rf /var/cache/apk /tmp/* /root/.cache
 
-FROM arakurumi/myne:debian
+FROM arakurumi/myne:alpine
 
 COPY --from=builder / /
 
-CMD ["/usr/bin/sh"]
+CMD ["/bin/sh"]
