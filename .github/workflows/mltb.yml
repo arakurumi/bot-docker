@@ -179,7 +179,7 @@ jobs:
               printf "  ${red}✖${reset}  %-24s %s\n" "mltb venv" "missing"
             fi
 
-            for module in kurigram yt_dlp gallery_dl pycurl aiohttp aioqbt aioaria2 fastapi uvicorn pymongo jinja2 natsort anytree PIL Crypto magic urllib3; do
+            for module in aioaria2 aiohttp aioqbt anytree Crypto fastapi gallery_dl jinja2 magic natsort PIL pymongo pycurl pyrogram urllib3 uvicorn yt_dlp; do
               if /mltb/bin/python -c "import $module" >/dev/null 2>&1; then
                 printf "  ${green}✔${reset}  %-24s %s\n" "$module" "imported"
               else

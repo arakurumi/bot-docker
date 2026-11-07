@@ -186,7 +186,7 @@ jobs:
               printf "  ${red}✖${reset}  %-24s %s\n" "librespot venv" "import failed"
             fi
 
-            for module in kurigram yt_dlp gallery_dl pycurl bs4 lxml PIL Crypto mutagen requests tenacity; do
+            for module in bs4 Crypto gallery_dl lxml mutagen PIL pycurl pyrogram requests tenacity yt_dlp; do
               if /gemoe/bin/python -c "import $module" >/dev/null 2>&1; then
                 printf "  ${green}✔${reset}  %-24s %s\n" "$module" "imported"
               else
