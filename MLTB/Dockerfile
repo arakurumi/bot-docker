@@ -1,11 +1,8 @@
 FROM arakurumi/mltb:latest AS builder
 
-ENV CC=clang \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 COPY requirements.txt /
-
-RUN apk add --no-cache --virtual .build-deps build-base clang curl-dev
 
 RUN python -m venv --system-site-packages mltb
 

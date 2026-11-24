@@ -16,13 +16,12 @@ natsort
 pillow
 psutil
 pycryptodome
-pycurl
 pymongo
 python-magic
-requests
+pytz
 speedtest-cli
 tenacity
-urllib3
 uvicorn
-uvloop
+uvloop; sys_platform != "win32"
+winloop; sys_platform == "win32"
 yt-dlp[default,curl_cffi]
